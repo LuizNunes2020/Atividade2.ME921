@@ -1,0 +1,49 @@
+library(ggplot2)
+library(GGally)
+library(MVN)
+library(dplyr)
+library(mclust)
+library(MASS)
+library(readr)
+library(factoextra)
+library(fpc)
+
+
+dados <- read.csv(file.choose())
+dados_2 <- dados %>%
+  select(-X,-player,-org,-map_id,-agent,-region,-clutch..won.played.)
+
+# Remover linhas com valores ausentes
+dados_limpos <- na.omit(dados_2)
+# Remover '%' e '/' da variáveis de caracter e converter para numérico
+dados_2$headshot_percentage <- as.numeric(gsub("%", "", dados_2$headshot_percentage))
+
+
+# Calcular os componentes principais
+pca <- prcomp(dados_limpos, scale. = TRUE)
+# Extrair cargas dos componentes principais
+cargas <- as.data.frame(pca$rotation)
+
+# Identificar as variáveis com as maiores cargas para os primeiros cinco componentes principais
+maiores_cargas <- apply(cargas[, 1:5], 2, function(x) names(sort(abs(x), decreasing = TRUE)[1]))
+
+# Exibir as variáveis selecionadas
+print(maiores_cargas)
+
+# Selecionar as variáveis identificadas
+dados_selecionados <- dados_limpos[, maiores_cargas]
+
+# Criar o gráfico de pares
+pairs_plot <- ggpairs(dados_selecionados)
+print(pairs_plot)
+
+# Criar biplot das 5 primeiras componentes principais
+fviz_pca_biplot(pca, 
+                axes = c(1, 2), # Primeiros dois componentes principais
+                label = "var", # Rotular as variáveis
+                col.var = "contrib", # Colorir as variáveis de acordo com a contribuição
+                gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+                repel = TRUE) + # Evitar sobreposição de rótulos
+  labs(title = "Biplot das Primeiras Duas Componentes Principais")
+
+
