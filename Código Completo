@@ -9,18 +9,25 @@ library(factoextra)
 library(fpc)
 
 
-dados <- read.csv(file.choose())
+# Carregar os dados
+dados <- read.csv(file.choose())  # Abre um diálogo para selecionar o arquivo CSV
+
+# Selecionar as colunas relevantes e remover colunas desnecessárias
 dados_2 <- dados %>%
-  select(-X,-player,-org,-map_id,-agent,-region,-clutch..won.played.)
+  select(-player, -org, -class)  # Remover colunas que não serão usadas na análise
+
+# Remover '%' e '/' das variáveis de caractere e converter para numérico
+dados_2$headshot_percentage <- as.numeric(gsub("%", "", dados_2$headshot_percentage))
+dados_2$kill_assists_survived_traded <- as.numeric(gsub("%", "", dados_2$kill_assists_survived_traded))
+dados_2$clutch_success_percentage <- as.numeric(gsub("%", "", dados_2$clutch_success_percentage))
+
 
 # Remover linhas com valores ausentes
 dados_limpos <- na.omit(dados_2)
-# Remover '%' e '/' da variáveis de caracter e converter para numérico
-dados_2$headshot_percentage <- as.numeric(gsub("%", "", dados_2$headshot_percentage))
-
 
 # Calcular os componentes principais
 pca <- prcomp(dados_limpos, scale. = TRUE)
+
 # Extrair cargas dos componentes principais
 cargas <- as.data.frame(pca$rotation)
 
@@ -30,6 +37,15 @@ maiores_cargas <- apply(cargas[, 1:5], 2, function(x) names(sort(abs(x), decreas
 # Exibir as variáveis selecionadas
 print(maiores_cargas)
 
+# Criar biplot das 5 primeiras componentes principais
+fviz_pca_biplot(pca, 
+                axes = c(1, 2),  # Primeiros dois componentes principais
+                label = "var",  # Rotular as variáveis
+                col.var = "contrib",  # Colorir as variáveis de acordo com a contribuição
+                gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
+                repel = TRUE) +  # Evitar sobreposição de rótulos
+  labs(title = "Biplot das Primeiras Duas Componentes Principais")
+
 # Selecionar as variáveis identificadas
 dados_selecionados <- dados_limpos[, maiores_cargas]
 
@@ -37,13 +53,72 @@ dados_selecionados <- dados_limpos[, maiores_cargas]
 pairs_plot <- ggpairs(dados_selecionados)
 print(pairs_plot)
 
-# Criar biplot das 5 primeiras componentes principais
-fviz_pca_biplot(pca, 
-                axes = c(1, 2), # Primeiros dois componentes principais
-                label = "var", # Rotular as variáveis
-                col.var = "contrib", # Colorir as variáveis de acordo com a contribuição
-                gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"), 
-                repel = TRUE) + # Evitar sobreposição de rótulos
-  labs(title = "Biplot das Primeiras Duas Componentes Principais")
+# Ajustar o modelo de mistura gaussiana usando Mclust
+modelo <- Mclust(dados_selecionados)
+modelo$BIC
+modelo1 <- Mclust(dados_selecionados, 2, modelNames = "VVE")
+modelo2 <- Mclust(dados_selecionados, 3, modelNames = "EVE")
 
+# Obter os valores de BIC
+bic_values <- modelo$BIC
+plot(modelo, what = "BIC",
+     ylim = range(modelo$BIC[, -(1:2)], na.rm = TRUE),
+     legendArgs = list(x = "bottomleft"))
 
+# Plot de incerteza
+grafico_incerteza <- uncerPlot(modelo$z)
+
+# Calcular o ICL
+mclustICL(dados_selecionados)
+
+# Plotar a classificação dos clusters
+plot(modelo1, what = "classification")
+plot(modelo2, what = "classification")
+plot(modelo1, what = "uncertainty")
+
+# K-means clustering
+set.seed(123)  # Para reprodutibilidade
+kmeans_result <- kmeans(dados_selecionados, centers = 2)
+
+# Visualizar os resultados
+p1 <- fviz_cluster(list(data = dados_selecionados, cluster = modelo1$classification),
+                   geom = "point",
+                   stand = FALSE) + ggtitle("Clusterização usando GMM (2 clusters, VVE)")
+
+p2 <- fviz_cluster(list(data = dados_selecionados, cluster = kmeans_result$cluster),
+                   geom = "point",
+                   stand = FALSE) + ggtitle("Clusterização usando K-means (2 clusters)")
+
+gridExtra::grid.arrange(p1, p2, ncol = 2)
+
+# Gráfico de cotovelo para determinar o número ideal de clusters
+fviz_nbclust(dados_selecionados, kmeans, method = "wss") +
+  labs(title = "Gráfico de Cotovelo", x = "Número de Clusters k", y = "Total de Somas de Quadrados Internos (WSS)")
+
+# Silhueta para K-means com 3 clusters
+set.seed(123)  # Definir uma semente para reprodutibilidade
+kmeans_result <- kmeans(dados_selecionados, centers = 3)  # Escolher o número de clusters (centers)
+
+# Calcular o resultado da silhueta
+silhouette_result <- silhouette(kmeans_result$cluster, dist(dados_selecionados))
+
+# Calcular a média do índice de silhueta
+mean_silhouette <- mean(silhouette_result[, 3])
+
+# Criar o gráfico de silhueta com a média no título
+fviz_silhouette(silhouette_result) +
+  labs(title = paste("Gráfico de Silhueta - Média:", round(mean_silhouette, 2)), 
+       x = "Índice de Silhueta", y = "Clusters")
+
+# K-means clustering com 4 clusters
+set.seed(123)  # Definir uma semente para reprodutibilidade
+kmeans_model <- kmeans(dados_selecionados, centers = 4, nstart = 25)
+
+# Visualizar os clusters
+fviz_cluster(kmeans_model, data = dados_selecionados,
+             ellipse.type = "convex",  # Tipo de elipse
+             geom = "point",  # Usar pontos para as observações
+             show.clust.cent = TRUE,  # Mostrar centros dos clusters
+             palette = "jco",  # Escolher uma paleta de cores
+             ggtheme = theme_minimal(),  # Tema minimalista
+             main = "Clusterização usando K-means (4 clusters)")
